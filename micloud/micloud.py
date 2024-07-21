@@ -18,10 +18,8 @@ from .miutils import get_session
 from .micloudexception import MiCloudAccessDenied, MiCloudException
 
 
-
 class MiCloud:
-
-    def __init__(self, username=None, password=None):
+    def __init__(self, username=None, password=None, country=None):
         super().__init__()
         self.user_id =       None
         self.service_token = None
@@ -41,16 +39,16 @@ class MiCloud:
         self.default_server = 'de' # Sets default server to Europe.
         self.username = username
         self.password = password
-
+        self.country = country
+        if not country:
+            self.country = self.default_server
 
     def get_token(self):
         """Return the servie token if you have successfully logged in."""
         return self.service_token
 
-
     def _check_credentials(self):
         return (self.username and self.password)
-
 
     def login(self):
         """Login in to Xiaomi cloud.
@@ -93,7 +91,6 @@ class MiCloud:
 
         return True
 
-
     def _login_request(self):
         try:
             self._init_session()
@@ -118,13 +115,11 @@ class MiCloud:
         except Exception as e:
             raise MiCloudException("Cannot logon to Xiaomi cloud: " + str(e))
 
-
     def _init_session(self, reset=False):
         if not self.session or reset:
             if self.session is not None:
                 self.session.close()
             self.session = get_session()
-
 
     def _login_step1(self):
         logging.debug("Xiaomi login step 1")
@@ -149,7 +144,6 @@ class MiCloud:
         except Exception as e:
             raise MiCloudException("Error getting logon sign. Cannot parse response.", e)
 
-
     def _login_step2(self, sign):
         logging.debug("Xiaomi login step 2")
 
@@ -165,7 +159,7 @@ class MiCloud:
         if sign:
             post_data['_sign'] = sign
 
-        response = self.session.post(url, data = post_data)
+        response = self.session.post(url, data=post_data)
         response_json = json.loads(response.text.replace("&&&START&&&", ""))
 
         logging.debug("Xiaomi login step 2 response code: %s", response.status_code)
@@ -194,7 +188,6 @@ class MiCloud:
         else:
             raise MiCloudException("Error getting logon location URL. Return code: " + code)
 
-
     def _login_step3(self, location):
         logging.debug("Xiaomi login step 3 @ %s", location)
 
@@ -210,11 +203,9 @@ class MiCloud:
 
         return response
 
-
-    def get_devices(self, country=None, raw=False, save=False, file="devices.json"):
+    def get_devices(self, raw=False, save=False, file="devices.json"):
         """Get a list with information about all devices.
 
-        :param country: country code for the server. Default: "de" (Europe)
         :param raw: Return raw result from server instead of a python list.
         :param save: Save information to json file. Default: False
         :param file: json file to save to.
@@ -222,10 +213,7 @@ class MiCloud:
         :rtype: list
         """
 
-        if not country:
-            country = self.default_server
-
-        response = self._get_device_string(country)
+        response = self._get_device_string()
         if not response:
             return None
 
@@ -245,12 +233,98 @@ class MiCloud:
         except ValueError as e:
             logging.info("Error while parsing devices: %s", str(e))
 
+    def get_version(self, did):
+        response = self._get_latest_ver(did)
+        if not response:
+            return None
 
-    def _get_device_string(self, country):
-        if not country:
-            country = self.default_server
+        json_resp = json.loads(response)
+        return json_resp['result']
 
-        url = self._get_api_url(country) + "/home/device_list"
+    def bind(self, model):
+        token = "000000000000000000000000"
+        resp1 = self._blt_apply_did(model, token)
+        did = json.loads(resp1)['result']['did']
+        resp2 = self._blt_bind(did, token)
+        return {
+            'apply': json.loads(resp1),
+            'bind': json.loads(resp2)
+        }
+
+    def delete(self, did, pid):
+        return json.loads(self._del_device(did, int(pid)))
+
+    def _blt_apply_did(self, model, token):
+        url = self._get_api_url() + "/device/bltapplydid"
+        params = {
+            "data": json.dumps({
+                #"did": "blt.4.1ibur3721gg00"  # comment in, to not have mi generate a did
+                "mac": "AA:AA:AA:AA:AA:AA",
+                "model": model,
+                "token": token
+            })
+        }
+        try:
+            resp = self.request(url, params)
+            logging.debug("Get devices response: %s", resp)
+            if len(resp) > 2:
+                return resp
+        except MiCloudException as e:
+            logging.error("%s", str(e))
+        return None
+
+    def _blt_bind(self, did, token):
+        url = self._get_api_url() + "/device/bltbind"
+        params = {
+            "data": json.dumps({
+                "did": did,
+                "props": [
+                    {
+                        "key": "bind_key",
+                        "type": "prop",
+                        "value": "00000000000000000000000000000000"
+                    },
+                    {
+                        "key": "smac",
+                        "type": "prop",
+                        "value": "AA:AA:AA:AA:AA:AA"
+                    }
+                ],
+                "token": token
+            })
+        }
+        try:
+            resp = self.request(url, params)
+            logging.debug("Get devices response: %s", resp)
+            if len(resp) > 2:
+                return resp
+        except MiCloudException as e:
+            logging.error("%s", str(e))
+        return None
+
+    def _del_device(self, did, pid):
+        url = self._get_api_url() + "/user/del_owner_device_batch"
+        params = {
+            "data": json.dumps({
+                "devList": [
+                    {
+                        "did": did,
+                        "pid": pid
+                    }
+                ]
+            })
+        }
+        try:
+            resp = self.request(url, params)
+            logging.debug("Del devices response: %s", resp)
+            if len(resp) > 2:
+                return resp
+        except MiCloudException as e:
+            logging.error("%s", str(e))
+        return None
+
+    def _get_device_string(self):
+        url = self._get_api_url() + "/home/device_list"
         params = {
             'data': '{"getVirtualModel":true,"getHuamiDevices":1,"get_split_device":false,"support_smart_home":true}'
         }
@@ -263,17 +337,28 @@ class MiCloud:
             logging.error("%s", str(e))
         return None
 
+    def _get_latest_ver(self, did):
+        url = self._get_api_url() + "/device/latest_ver"
+        params = {
+            'data': '{"did": "' + did + '"}'
+        }
+        try:
+            resp = self.request(url, params)
+            logging.debug("Get latest ver response: %s", resp)
+            if len(resp) > 2:
+                return resp
+        except MiCloudException as e:
+            logging.error("%s", str(e))
+        return None
 
-    def _get_api_url(self, country):
-        return "https://" + ("" if country.strip().lower() == "cn" else country.strip().lower() + ".") + "api.io.mi.com/app"
-
+    def _get_api_url(self):
+        return "https://" + ("" if self.country.strip().lower() == "cn" else self.country.strip().lower() + ".") + "api.io.mi.com/app"
 
     def request_country(self, url_part, country, params):
-        url = self._get_api_url(country) + url_part
+        url = self._get_api_url() + url_part
         response = self.request(url, params)
         logging.debug("Request to %s server %s. Response: %s", country, url_part, response)
         return response
-
 
     def request(self, url, params):
         if not self.service_token or not self.user_id:

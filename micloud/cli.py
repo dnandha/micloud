@@ -1,9 +1,12 @@
 import click
 import json
 import logging
+import os
 
 from micloud.micloud import MiCloud
 from .miotspec import MiotSpec, MIOT_STANDARD_TYPES
+
+from urllib.request import urlretrieve
 
 
 @click.group()
@@ -16,20 +19,76 @@ def cli(debug):
 
     logging.basicConfig(level=level)
 
-@cli.command()
+@cli.group()
 @click.option('--username', '-u', prompt=True, help='Your Xiaomi username.')
 @click.option('--password', '-p', prompt=True, hide_input=True, confirmation_prompt=False)
 @click.option('--country', '-c', default='de', help='Language code of the server to query. Default: "de"')
-@click.option('--pretty', is_flag=True, help='Pretty print json output.')
-def get_devices(username, password, country, pretty):
+@click.pass_context
+def device(ctx, username, password, country):
+    """Commands for device."""
+    ctx.ensure_object(dict)
+    ctx.obj['username'] = username
+    ctx.obj['password'] = password
+    ctx.obj['country'] = country
+
+
+@device.command(name="list")
+@click.pass_context
+def device_list(ctx):
     """Get device information, including tokens."""
-    mc = MiCloud(username, password)
+    mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
     mc.login()
-    devices = mc.get_devices(country=country)
-    if pretty:
-        click.echo(json.dumps(devices, indent=2, sort_keys=True))
-    else:
-        click.echo(json.dumps(devices))
+    devices = mc.get_devices()
+    click.echo(json.dumps(devices, indent=2, sort_keys=True))
+
+@device.command(name="delete-all")
+@click.pass_context
+def device_delete_all(ctx):
+    """Delete all devices from account."""
+    mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
+    mc.login()
+    devices = mc.get_devices()
+    for dev in devices:
+        resp = mc.delete(dev['did'], dev['pid'])
+        click.echo(json.dumps(resp, indent=2, sort_keys=True))
+
+@device.command(name="add")
+@click.pass_context
+@click.option('--model', '-m', prompt=True, help='Device model')
+def device_add(ctx, model):
+    """Add new device to account."""
+    mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
+    mc.login()
+    for mdl in model.split(","):
+        resp = mc.bind(mdl)
+        click.echo(json.dumps(resp, indent=2, sort_keys=True))
+
+@device.command(name="firmware")
+@click.pass_context
+@click.option('--outdir', '-o', default=None, help='')
+def device_firmware(ctx, outdir):
+    """Fetch firmware info and optionally download."""
+    mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
+    mc.login()
+    devices = mc.get_devices()
+    for dev in devices:
+        click.echo(dev['name'])
+        ver = mc.get_version(dev['did'])
+        click.echo(json.dumps(ver, indent=2, sort_keys=True))
+
+        if ver['url'] and outdir:
+            filename = (
+                ver['version'] + "_" +
+                ver['url'].split("?")[0].split("/")[-1]
+            )
+
+            res = urlretrieve(ver['url'], os.path.join(outdir, filename))
+            if res:
+                click.echo("Download successful")
+            else:
+                click.echo("Download failed")
+        else:
+            click.echo("Skipped download")
 
 
 @cli.group()
