@@ -1,7 +1,8 @@
 # -----------------------------------------------------------
-# Library to login to xiaomi cloud and get device info.
+# Library to login to xiaomi cloud and manage devices.
 #
 # (C) 2020 Sammy Svensson
+# (C) 2024 Daljeet Nandha
 # Released under MIT License
 # email sammy@ssvensson.se
 # -----------------------------------------------------------
@@ -234,6 +235,10 @@ class MiCloud:
             logging.info("Error while parsing devices: %s", str(e))
 
     def get_version(self, did):
+        """Get info about the latest firmware version.
+
+        :param did: Device ID for which to fetch the info.
+        """
         response = self._get_latest_ver(did)
         if not response:
             return None
@@ -242,7 +247,11 @@ class MiCloud:
         return json_resp['result']
 
     def bind(self, model):
-        token = "000000000000000000000000"
+        """Add a new device to user home.
+
+        :param model: Model identifier, such as 'yeelink.light.nl1'
+        """
+        token = "000000000000000000000000"  # not checked by server
         resp1 = self._blt_apply_did(model, token)
         did = json.loads(resp1)['result']['did']
         resp2 = self._blt_bind(did, token)
@@ -252,14 +261,20 @@ class MiCloud:
         }
 
     def delete(self, did, pid):
+        """Delete a device from user home.
+
+        :param did: Device ID to delete.
+        :param pid: Product ID of the device.
+        """
         return json.loads(self._del_device(did, int(pid)))
 
     def _blt_apply_did(self, model, token):
+        """This endpoint takes a model identifier and returns a did."""
         url = self._get_api_url() + "/device/bltapplydid"
         params = {
             "data": json.dumps({
-                #"did": "blt.4.1ibur3721gg00"  # comment in, to not have mi generate a did
-                "mac": "AA:AA:AA:AA:AA:AA",
+                #"did": "blt.4.1ibur3721gg00"  # if 'did' is not given, server will generate
+                "mac": "AA:AA:AA:AA:AA:AA",  # dummy value, not checked by server
                 "model": model,
                 "token": token
             })
@@ -274,6 +289,7 @@ class MiCloud:
         return None
 
     def _blt_bind(self, did, token):
+        """This endpoint takes a did and binds it to key, completes registration."""
         url = self._get_api_url() + "/device/bltbind"
         params = {
             "data": json.dumps({
@@ -282,12 +298,12 @@ class MiCloud:
                     {
                         "key": "bind_key",
                         "type": "prop",
-                        "value": "00000000000000000000000000000000"
+                        "value": "00000000000000000000000000000000"  # dummy value, not checked by server
                     },
                     {
                         "key": "smac",
                         "type": "prop",
-                        "value": "AA:AA:AA:AA:AA:AA"
+                        "value": "AA:AA:AA:AA:AA:AA"  # dummy value, not checked by server
                     }
                 ],
                 "token": token
@@ -303,6 +319,7 @@ class MiCloud:
         return None
 
     def _del_device(self, did, pid):
+        """This endpoint deletes a device from user home."""
         url = self._get_api_url() + "/user/del_owner_device_batch"
         params = {
             "data": json.dumps({
@@ -324,6 +341,7 @@ class MiCloud:
         return None
 
     def _get_device_string(self):
+        """This endpoint returns a list of devices."""
         url = self._get_api_url() + "/home/device_list"
         params = {
             'data': '{"getVirtualModel":true,"getHuamiDevices":1,"get_split_device":false,"support_smart_home":true}'
@@ -338,6 +356,7 @@ class MiCloud:
         return None
 
     def _get_latest_ver(self, did):
+        """This endpoint returns the latest firmware version for a registered did."""
         url = self._get_api_url() + "/device/latest_ver"
         params = {
             'data': '{"did": "' + did + '"}'
