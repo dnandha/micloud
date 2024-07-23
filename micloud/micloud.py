@@ -204,6 +204,19 @@ class MiCloud:
 
         return response
 
+    def get_all_products(self):
+        prods = json.loads(self._get_products())['result']
+        return sorted(prods, key=lambda x: x['model'])
+
+    def get_product_cats(self):
+        cats = {prod['cate_name'] for prod in self.get_all_products()}
+        return list(cats)
+
+    def get_product_by_cat(self, cat):
+        prods = [prod for prod in self.get_all_products()
+                 if prod['cate_name'] == cat]
+        return sorted(prods, key=lambda x: x['model'])
+
     def get_devices(self, raw=False, save=False, file="devices.json"):
         """Get a list with information about all devices.
 
@@ -246,16 +259,27 @@ class MiCloud:
         json_resp = json.loads(response)
         return json_resp['result']
 
-    def bind(self, model):
+    def bind(self, model, token=None, mac=None, bind_key=None):
         """Add a new device to user home.
 
         :param model: Model identifier, such as 'yeelink.light.nl1'
         """
-        token = "000000000000000000000000"  # not checked by server
-        resp1 = self._blt_apply_did(model, token)
-        did = json.loads(resp1)['result']['did']
-        resp2 = self._blt_bind(did, token)
+        # if optional params are not set, use dummy value
+        # server doesn't do any sanity check on these values :P
+        if not token:
+            token = "000000000000000000000000"
+        if not mac:
+            mac = "AA:AA:AA:AA:AA:AA"
+        if not bind_key:
+            bind_key = "00000000000000000000000000000000"
+
+        resp1 = self._blt_apply_did(model, token, mac)
+        resp2 = b"{}"
+        res1 = json.loads(resp1)['result']
+        if res1:
+            resp2 = self._blt_bind(res1['did'], token, mac, bind_key)
         return {
+            'model': model,
             'apply': json.loads(resp1),
             'bind': json.loads(resp2)
         }
@@ -268,13 +292,13 @@ class MiCloud:
         """
         return json.loads(self._del_device(did, int(pid)))
 
-    def _blt_apply_did(self, model, token):
+    def _blt_apply_did(self, model, token, mac):
         """This endpoint takes a model identifier and returns a did."""
         url = self._get_api_url() + "/device/bltapplydid"
         params = {
             "data": json.dumps({
                 #"did": "blt.4.1ibur3721gg00"  # if 'did' is not given, server will generate
-                "mac": "AA:AA:AA:AA:AA:AA",  # dummy value, not checked by server
+                "mac": mac,  # dummy value, not checked by server
                 "model": model,
                 "token": token
             })
@@ -288,7 +312,7 @@ class MiCloud:
             logging.error("%s", str(e))
         return None
 
-    def _blt_bind(self, did, token):
+    def _blt_bind(self, did, token, mac, bind_key):
         """This endpoint takes a did and binds it to key, completes registration."""
         url = self._get_api_url() + "/device/bltbind"
         params = {
@@ -298,12 +322,12 @@ class MiCloud:
                     {
                         "key": "bind_key",
                         "type": "prop",
-                        "value": "00000000000000000000000000000000"  # dummy value, not checked by server
+                        "value": bind_key
                     },
                     {
                         "key": "smac",
                         "type": "prop",
-                        "value": "AA:AA:AA:AA:AA:AA"  # dummy value, not checked by server
+                        "value": mac
                     }
                 ],
                 "token": token
@@ -370,6 +394,30 @@ class MiCloud:
             logging.error("%s", str(e))
         return None
 
+    def _get_products(self):
+        """This endpoint returns the latest firmware version for a registered did."""
+        url = self._get_api_url() + "/v2/productconfig/single_pull"
+        params = {
+            "data": json.dumps({
+                "app_platform": "micloud",
+                "app_version": 0,
+                "keys": [
+                    "cate_name",
+                    "desc",
+                    "name",
+                ],
+                "models": []
+            })
+        }
+        try:
+            resp = self.request(url, params)
+            logging.debug("Get latest ver response: %s", resp)
+            if len(resp) > 2:
+                return resp
+        except MiCloudException as e:
+            logging.error("%s", str(e))
+        return None
+
     def _get_api_url(self):
         return "https://" + ("" if self.country.strip().lower() == "cn" else self.country.strip().lower() + ".") + "api.io.mi.com/app"
 
@@ -383,7 +431,7 @@ class MiCloud:
         if not self.service_token or not self.user_id:
             raise MiCloudException("Cannot execute request. service token or userId missing. Make sure to login.")
 
-        logging.debug("Send request: %s to %s", params['data'], url)
+        logging.debug("Send request: %s to %s", params, url)
 
         self._init_session(reset=True)
         self.session.headers.update({

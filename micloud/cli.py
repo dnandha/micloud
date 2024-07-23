@@ -11,8 +11,17 @@ from urllib.request import urlretrieve
 
 @click.group()
 @click.option("-d", "--debug", is_flag=True)
-def cli(debug):
+@click.option('--username', '-u', prompt=True, help='Your Xiaomi username.')
+@click.option('--password', '-p', prompt=True, hide_input=True, confirmation_prompt=False)
+@click.option('--country', '-c', default='de', help='Language code of the server to query. Default: "de"')
+@click.pass_context
+def cli(ctx, debug, username, password, country):
     """Tool for fetching xiaomi cloud information."""
+    ctx.ensure_object(dict)
+    ctx.obj['username'] = username
+    ctx.obj['password'] = password
+    ctx.obj['country'] = country
+
     level = logging.INFO
     if debug:
         level = logging.DEBUG
@@ -20,17 +29,48 @@ def cli(debug):
     logging.basicConfig(level=level)
 
 @cli.group()
-@click.option('--username', '-u', prompt=True, help='Your Xiaomi username.')
-@click.option('--password', '-p', prompt=True, hide_input=True, confirmation_prompt=False)
-@click.option('--country', '-c', default='de', help='Language code of the server to query. Default: "de"')
-@click.pass_context
-def device(ctx, username, password, country):
-    """Commands for device."""
-    ctx.ensure_object(dict)
-    ctx.obj['username'] = username
-    ctx.obj['password'] = password
-    ctx.obj['country'] = country
+def product():
+    """Commands for producs."""
 
+@product.command("list")
+@click.option("--model-ids", "-m", is_flag=True, help="Output only model ids")
+@click.pass_context
+def product_list(ctx, model_ids):
+    """Get all available products."""
+    mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
+    mc.login()
+    products = mc.get_all_products()
+    if model_ids:
+        click.echo(",".join([prod['model'] for prod in products]))
+    else:
+        click.echo(json.dumps(products, indent=2, sort_keys=True))
+
+@product.command("cats")
+@click.pass_context
+def product_cats(ctx):
+    """Get all available product categories."""
+    mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
+    mc.login()
+    cats = mc.get_product_cats()
+    click.echo(json.dumps(cats, indent=2, sort_keys=True))
+
+@product.command("by-cat")
+@click.option('--category', '-c', prompt=True, help='Category name')
+@click.option("--model-ids", "-m", is_flag=True, help="Output only model ids")
+@click.pass_context
+def product_by_cat(ctx, category, model_ids):
+    """Get products by category."""
+    mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
+    mc.login()
+    products = mc.get_product_by_cat(category)
+    if model_ids:
+        click.echo(",".join([prod['model'] for prod in products]))
+    else:
+        click.echo(json.dumps(products, indent=2, sort_keys=True))
+
+@cli.group()
+def device():
+    """Commands for device."""
 
 @device.command(name="list")
 @click.pass_context
@@ -55,12 +95,15 @@ def device_delete_all(ctx):
 @device.command(name="add")
 @click.pass_context
 @click.option('--model', '-m', prompt=True, help='Device model')
-def device_add(ctx, model):
+@click.option('--token', '-t', help='BLE pairing token')
+@click.option('--mac', '-a', help='BLE device MAC')
+@click.option('--bind-key', '-b', help='BLE bind key')
+def device_add(ctx, model, token, mac, bind_key):
     """Add new device to account."""
     mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
     mc.login()
     for mdl in model.split(","):
-        resp = mc.bind(mdl)
+        resp = mc.bind(mdl, token=token, mac=mac, bind_key=bind_key)
         click.echo(json.dumps(resp, indent=2, sort_keys=True))
 
 @device.command(name="firmware")
@@ -71,24 +114,32 @@ def device_firmware(ctx, outdir):
     mc = MiCloud(ctx.obj['username'], ctx.obj['password'], ctx.obj['country'])
     mc.login()
     devices = mc.get_devices()
+
+    firmwares = []
     for dev in devices:
-        click.echo(dev['name'])
+        #click.echo(dev['name'])
         ver = mc.get_version(dev['did'])
-        click.echo(json.dumps(ver, indent=2, sort_keys=True))
+        if ver['url']:
+            firmwares += [{
+                'name': dev['name'],
+                'model': dev['model'],
+                'firmware': ver
+            }]
 
-        if ver['url'] and outdir:
-            filename = (
-                ver['version'] + "_" +
-                ver['url'].split("?")[0].split("/")[-1]
-            )
+            if outdir:
+                filename = (
+                    ver['version'] + "_" +
+                    ver['url'].split("?")[0].split("/")[-1]
+                )
 
-            res = urlretrieve(ver['url'], os.path.join(outdir, filename))
-            if res:
-                click.echo("Download successful")
-            else:
-                click.echo("Download failed")
+                res = urlretrieve(ver['url'], os.path.join(outdir, filename))
+                #if res:
+                #    click.echo("Download successful")
+                #else:
+                #    click.echo("Download failed")
         else:
-            click.echo("Skipped download")
+            click.echo("No url found")
+    click.echo(json.dumps(firmwares, indent=2, sort_keys=True))
 
 
 @cli.group()
