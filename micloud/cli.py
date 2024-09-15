@@ -117,7 +117,7 @@ def device_firmware(ctx, outdir):
 
     firmwares = []
     for dev in devices:
-        #click.echo(dev['name'])
+        #click.echo(dev)
         ver = mc.get_version(dev['did'])
         if ver['url']:
             firmwares += [{
@@ -129,14 +129,17 @@ def device_firmware(ctx, outdir):
             if outdir:
                 filename = (
                     ver['version'] + "_" +
-                    ver['url'].split("?")[0].split("/")[-1]
+                    ver['safe_url'].split("?")[0].split("/")[-1]
                 )
 
-                res = urlretrieve(ver['url'], os.path.join(outdir, filename))
-                #if res:
-                #    click.echo("Download successful")
-                #else:
-                #    click.echo("Download failed")
+                urlretrieve(ver['safe_url'], os.path.join(outdir, filename))
+
+                if 'mcu_safe_url' in ver:
+                    filename = (
+                        ver['version'] + "_" +
+                        ver['mcu_safe_url'].split("?")[0].split("/")[-1]
+                    )
+                    urlretrieve(ver['mcu_safe_url'], os.path.join(outdir, filename))
         else:
             click.echo("No url found")
     click.echo(json.dumps(firmwares, indent=2, sort_keys=True))

@@ -368,7 +368,12 @@ class MiCloud:
         """This endpoint returns a list of devices."""
         url = self._get_api_url() + "/home/device_list"
         params = {
-            'data': '{"getVirtualModel":true,"getHuamiDevices":1,"get_split_device":false,"support_smart_home":true}'
+            'data': json.dumps({
+                "getVirtualModel": True,
+                "getHuamiDevices": 1,
+                "get_split_device": False,
+                "support_smart_home": True
+            })
         }
         try:
             resp = self.request(url, params)
@@ -383,7 +388,9 @@ class MiCloud:
         """This endpoint returns the latest firmware version for a registered did."""
         url = self._get_api_url() + "/device/latest_ver"
         params = {
-            'data': '{"did": "' + did + '"}'
+            'data': json.dumps({
+                "did": did
+            })
         }
         try:
             resp = self.request(url, params)
