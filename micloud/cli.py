@@ -136,7 +136,7 @@ def device_firmware(ctx, outdir):
 
                 if 'mcu_safe_url' in ver:
                     filename = (
-                        ver['version'] + "_" +
+                        ver['mcu_version'] + "_" +
                         ver['mcu_safe_url'].split("?")[0].split("/")[-1]
                     )
                     urlretrieve(ver['mcu_safe_url'], os.path.join(outdir, filename))
